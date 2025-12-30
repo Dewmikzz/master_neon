@@ -191,22 +191,22 @@ const BuilderPage = () => {
     setGeneratedPdfBase64(pdfBase64)
   }
 
-  // Helper function to compress image
-  const compressImage = (base64String: string, maxSizeKB: number = 500): Promise<string> => {
+  // Helper function to compress image aggressively
+  const compressImage = (base64String: string, maxSizeKB: number = 300): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement('canvas')
         let width = img.width
         let height = img.height
-        let quality = 0.9
+        let quality = 0.7 // Start with lower quality
 
-        // Calculate dimensions to keep under maxSizeKB
-        const maxDimension = 1200
+        // More aggressive resizing - max 800px instead of 1200px
+        const maxDimension = 800
         if (width > maxDimension || height > maxDimension) {
           const ratio = Math.min(maxDimension / width, maxDimension / height)
-          width = width * ratio
-          height = height * ratio
+          width = Math.floor(width * ratio)
+          height = Math.floor(height * ratio)
         }
 
         canvas.width = width
@@ -216,11 +216,22 @@ const BuilderPage = () => {
           ctx.drawImage(img, 0, 0, width, height)
           let compressed = canvas.toDataURL('image/jpeg', quality)
           
-          // If still too large, reduce quality
-          while (compressed.length > maxSizeKB * 1024 && quality > 0.3) {
-            quality -= 0.1
+          // If still too large, reduce quality more aggressively
+          while (compressed.length > maxSizeKB * 1024 && quality > 0.2) {
+            quality -= 0.05
             compressed = canvas.toDataURL('image/jpeg', quality)
           }
+          
+          // If still too large after quality reduction, resize more
+          if (compressed.length > maxSizeKB * 1024) {
+            width = Math.floor(width * 0.8)
+            height = Math.floor(height * 0.8)
+            canvas.width = width
+            canvas.height = height
+            ctx.drawImage(img, 0, 0, width, height)
+            compressed = canvas.toDataURL('image/jpeg', 0.5)
+          }
+          
           resolve(compressed)
         } else {
           resolve(base64String)
@@ -242,26 +253,36 @@ const BuilderPage = () => {
       // For logo, use uploaded image; for name, capture canvas
       let imagePreview = activeTab === 'logo' ? (config as LogoSignConfig).imageData : previewRef.current?.getImage()
 
-      // Compress image if it exists and is too large
-      if (imagePreview && imagePreview.length > 500 * 1024) {
-        imagePreview = await compressImage(imagePreview, 500) // Compress to max 500KB
+      // Always compress image to ensure it's small enough (max 300KB)
+      if (imagePreview) {
+        console.log('Original image size:', (imagePreview.length / 1024).toFixed(2), 'KB')
+        imagePreview = await compressImage(imagePreview, 300) // Aggressively compress to max 300KB
+        console.log('Compressed image size:', (imagePreview.length / 1024).toFixed(2), 'KB')
       }
 
-      // Make PDF optional - only send if it's reasonably sized (< 1MB)
-      let pdfBase64 = generatedPdfBase64
-      if (pdfBase64 && pdfBase64.length > 1024 * 1024) {
-        // PDF is too large, don't send it
-        console.log('PDF too large, skipping attachment')
-        pdfBase64 = null
-      }
+      // Never send PDF - it's too large and not essential for email
+      // User can download PDF separately if needed
+      const pdfBase64 = null
+      console.log('PDF attachment skipped to reduce payload size')
 
-      const response = await api.post('/neon-request', {
+      // Calculate total payload size
+      const payload = {
         ...customerDetails,
         config,
         imagePreview,
-        pdfBase64, // May be null if too large
+        pdfBase64,
         timestamp: new Date().toISOString(),
-      })
+      }
+      const payloadSize = JSON.stringify(payload).length
+      console.log('Total payload size:', (payloadSize / 1024).toFixed(2), 'KB')
+
+      // If still too large, remove image preview
+      if (payloadSize > 3 * 1024 * 1024) {
+        console.warn('Payload still too large, removing image preview')
+        payload.imagePreview = null
+      }
+
+      const response = await api.post('/neon-request', payload)
 
       const responseData = response?.data || {}
       setStatus({
