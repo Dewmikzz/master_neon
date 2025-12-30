@@ -191,6 +191,46 @@ const BuilderPage = () => {
     setGeneratedPdfBase64(pdfBase64)
   }
 
+  // Helper function to compress image
+  const compressImage = (base64String: string, maxSizeKB: number = 500): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        let width = img.width
+        let height = img.height
+        let quality = 0.9
+
+        // Calculate dimensions to keep under maxSizeKB
+        const maxDimension = 1200
+        if (width > maxDimension || height > maxDimension) {
+          const ratio = Math.min(maxDimension / width, maxDimension / height)
+          width = width * ratio
+          height = height * ratio
+        }
+
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height)
+          let compressed = canvas.toDataURL('image/jpeg', quality)
+          
+          // If still too large, reduce quality
+          while (compressed.length > maxSizeKB * 1024 && quality > 0.3) {
+            quality -= 0.1
+            compressed = canvas.toDataURL('image/jpeg', quality)
+          }
+          resolve(compressed)
+        } else {
+          resolve(base64String)
+        }
+      }
+      img.onerror = () => resolve(base64String)
+      img.src = base64String
+    })
+  }
+
   const handleSendToDesigner = async () => {
     if (!validateCustomerDetails()) return
 
@@ -200,22 +240,26 @@ const BuilderPage = () => {
     try {
       const config = getCurrentConfig()
       // For logo, use uploaded image; for name, capture canvas
-      const imagePreview = activeTab === 'logo' ? (config as LogoSignConfig).imageData : previewRef.current?.getImage()
+      let imagePreview = activeTab === 'logo' ? (config as LogoSignConfig).imageData : previewRef.current?.getImage()
 
-      // Use stored PDF if available, otherwise generate a new one
+      // Compress image if it exists and is too large
+      if (imagePreview && imagePreview.length > 500 * 1024) {
+        imagePreview = await compressImage(imagePreview, 500) // Compress to max 500KB
+      }
+
+      // Make PDF optional - only send if it's reasonably sized (< 1MB)
       let pdfBase64 = generatedPdfBase64
-      if (!pdfBase64) {
-        // Generate PDF and get base64 representation (also triggers download)
-        const previewNode = activeTab === 'name' ? previewElementRef.current : null
-        pdfBase64 = await generatePDF(config, customerDetails, previewNode)
-        setGeneratedPdfBase64(pdfBase64)
+      if (pdfBase64 && pdfBase64.length > 1024 * 1024) {
+        // PDF is too large, don't send it
+        console.log('PDF too large, skipping attachment')
+        pdfBase64 = null
       }
 
       const response = await api.post('/neon-request', {
         ...customerDetails,
         config,
         imagePreview,
-        pdfBase64,
+        pdfBase64, // May be null if too large
         timestamp: new Date().toISOString(),
       })
 
@@ -228,7 +272,18 @@ const BuilderPage = () => {
       // Clear stored PDF after successful send
       setGeneratedPdfBase64(null)
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.message || error?.message || 'We could not submit the request. Check your connection or try again shortly.'
+      let errorMessage = error?.response?.data?.message || error?.message || 'We could not submit the request. Check your connection or try again shortly.'
+      
+      // Handle 413 Payload Too Large error specifically
+      if (error?.response?.status === 413) {
+        errorMessage = error?.response?.data?.message || 'Request too large. Please try with a smaller image or without PDF attachment.'
+      }
+      
+      // Show suggestion if provided
+      if (error?.response?.data?.suggestion) {
+        errorMessage += ` ${error.response.data.suggestion}`
+      }
+      
       setStatus({
         type: 'error',
         message: errorMessage,
