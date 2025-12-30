@@ -52,7 +52,8 @@ const BuilderPage = () => {
     email?: string
     phone?: string
   }>({})
-  const [generatedPdfBase64, setGeneratedPdfBase64] = useState<string | null>(null)
+  // PDF is generated but not sent to reduce payload size - user can download separately
+  const [, setGeneratedPdfBase64] = useState<string | null>(null)
   const [templateModalPdfBase64, setTemplateModalPdfBase64] = useState<string | null>(null)
   const [selectedTemplateForModal, setSelectedTemplateForModal] = useState<typeof defaultTemplates[0] | null>(null)
   const [templateModalConfig, setTemplateModalConfig] = useState<{
@@ -262,7 +263,7 @@ const BuilderPage = () => {
 
       // Never send PDF - it's too large and not essential for email
       // User can download PDF separately if needed
-      const pdfBase64 = null
+      const pdfBase64: string | undefined = undefined
       console.log('PDF attachment skipped to reduce payload size')
 
       // Calculate total payload size
@@ -279,7 +280,7 @@ const BuilderPage = () => {
       // If still too large, remove image preview
       if (payloadSize > 3 * 1024 * 1024) {
         console.warn('Payload still too large, removing image preview')
-        payload.imagePreview = null
+        payload.imagePreview = undefined
       }
 
       const response = await api.post('/neon-request', payload)
