@@ -56,10 +56,18 @@ module.exports = async (req, res) => {
 
     // Attempt to send notification email
     try {
+      console.log('📧 Sending design request email to designer...')
+      console.log('Designer email:', process.env.DESIGNER_EMAIL)
+      console.log('Customer:', customerName, email)
+      console.log('Design category:', config?.category)
+      
       await sendNeonRequestEmail(request)
+      
+      console.log('✅ Email sent successfully to designer')
       return res.status(200).json({
         success: true,
-        message: 'Design request sent successfully. A designer will contact you within 1 business day.',
+        message: 'Design request sent successfully! A Master Neon designer will contact you within 1 business day.',
+        emailSent: true,
       })
     } catch (emailError) {
       const errorMessage = emailError && emailError.message ? emailError.message : 'Unknown error'

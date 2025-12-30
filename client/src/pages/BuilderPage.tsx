@@ -285,10 +285,17 @@ const BuilderPage = () => {
       const response = await api.post('/neon-request', payload)
 
       const responseData = response?.data || {}
+      const successMessage = responseData.emailSent 
+        ? '✅ Design sent successfully! A Master Neon designer will contact you at ' + customerDetails.email + ' within 1 business day.'
+        : responseData.message || '✅ Design request received! A Master Neon designer will contact you within 1 business day.'
+      
       setStatus({
         type: 'success',
-        message: responseData.message || 'Sent! A Master Neon designer will reply with proofs within 1 business day.',
+        message: successMessage,
       })
+      
+      console.log('✅ Design request submitted successfully')
+      console.log('Response:', responseData)
       setCustomerDetails({ customerName: '', email: '', phone: '', notes: '' })
       // Clear stored PDF after successful send
       setGeneratedPdfBase64(null)
